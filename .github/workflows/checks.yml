@@ -24,6 +24,7 @@ jobs:
       - run: cargo test --locked
         env:
           WSL_DISTRO_NAME: Branchline-CI-Fixture
+          RUST_TEST_THREADS: '2'
       - run: cargo clippy --locked --all-targets -- -D warnings
   frontend:
     runs-on: ubuntu-latest

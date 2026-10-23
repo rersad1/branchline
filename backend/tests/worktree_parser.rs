@@ -22,6 +22,8 @@ fn real_git_main_linked_detached_locked_and_prunable() {
         &repos.main,
         &["worktree", "add", "--detach", detached.to_str().unwrap()],
     );
+    // Normalize while the worktree exists; after rename its original path is missing.
+    let detached = agent_workspace_backend::environment::canonical_path(&detached).unwrap();
     git(
         &repos.main,
         &[
