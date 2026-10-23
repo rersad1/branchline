@@ -1,0 +1,7 @@
+{
+  "identifier": "main-workspace",
+  "description": "Bundled main UI workspace reads and explicit WSL connection",
+  "windows": ["main"],
+  "permissions": ["allow-memory-diagnostics", "allow-notify-attention", "allow-close-application", "allow-provider", "allow-harnesses", "allow-agents", "allow-terminal", "allow-remove-worktree", "allow-create-worktree", "allow-read-diff", "allow-edit-file", "allow-runtime-environment", "allow-runtime-states", "allow-connect-wsl", "allow-list-projects", "allow-list-worktrees", "allow-list-wsl-distros", "allow-pick-windows-folder", "allow-add-project", "allow-browse-directories", "allow-load-workspace", "allow-save-workspace-ui", "allow-relink-wsl", "allow-remove-project", "core:event:allow-listen", "core:event:allow-unlisten"]
+}
+

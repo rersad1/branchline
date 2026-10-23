@@ -1,0 +1,31 @@
+fn main() {
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
+        tauri_build::AppManifest::new().commands(&[
+            "memory_diagnostics",
+            "notify_attention",
+            "close_application",
+            "provider",
+            "harnesses",
+            "agents",
+            "terminal",
+            "remove_worktree",
+            "create_worktree",
+            "read_diff",
+            "edit_file",
+            "runtime_environment",
+            "runtime_states",
+            "connect_wsl",
+            "list_projects",
+            "list_worktrees",
+            "list_wsl_distros",
+            "pick_windows_folder",
+            "add_project",
+            "browse_directories",
+            "load_workspace",
+            "save_workspace_ui",
+            "relink_wsl",
+            "remove_project",
+        ]),
+    ))
+    .expect("desktop build")
+}

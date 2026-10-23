@@ -1,0 +1,3 @@
+# This embedded rcfile is executed by Linux Bash even when packaged on Windows.
+backend/src/shell/*.bash text eol=lf
+*.sh text eol=lf

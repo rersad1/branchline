@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-terminal"
+description = "Enables the terminal command without any pre-configured scope."
+commands.allow = ["terminal"]
+
+[[permission]]
+identifier = "deny-terminal"
+description = "Denies the terminal command without any pre-configured scope."
+commands.deny = ["terminal"]

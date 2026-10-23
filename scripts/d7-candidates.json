@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "protocol_version": 1,
+  "candidates": [
+    {
+      "name": "gemini",
+      "task": "D7.1",
+      "package": "@google/gemini-cli",
+      "version": "0.64.0",
+      "entry": "bundle/gemini.js",
+      "argv": ["--acp"],
+      "node_major_min": 20,
+      "dependencies": {},
+      "source": "https://github.com/google-gemini/gemini-cli/blob/v0.64.0/package.json",
+      "verified_platforms": []
+    },
+    {
+      "name": "qwen",
+      "task": "D7.2",
+      "package": "@qwen-code/qwen-code",
+      "version": "0.25.2",
+      "entry": "cli-entry.js",
+      "argv": ["--acp"],
+      "node_major_min": 22,
+      "dependencies": {},
+      "source": "https://registry.npmjs.org/@qwen-code/qwen-code/0.25.2",
+      "verified_platforms": []
+    },
+    {
+      "name": "codex-acp",
+      "task": "D7.3",
+      "package": "@agentclientprotocol/codex-acp",
+      "version": "2.2.2",
+      "entry": "dist/index.js",
+      "argv": [],
+      "node_major_min": 22,
+      "dependencies": {"@openai/codex": "0.160.1"},
+      "source": "https://github.com/agentclientprotocol/codex-acp/blob/v2.2.2/package-lock.json",
+      "verified_platforms": []
+    },
+    {
+      "name": "claude-agent-acp",
+      "task": "D7.4",
+      "package": "@agentclientprotocol/claude-agent-acp",
+      "version": "0.93.0",
+      "entry": "dist/index.js",
+      "argv": [],
+      "node_major_min": 22,
+      "dependencies": {"@anthropic-ai/claude-agent-sdk": "0.3.300"},
+      "source": "https://github.com/agentclientprotocol/claude-agent-acp/blob/v0.93.0/package.json",
+      "verified_platforms": []
+    }
+  ]
+}

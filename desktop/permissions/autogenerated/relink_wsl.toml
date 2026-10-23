@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-relink-wsl"
+description = "Enables the relink_wsl command without any pre-configured scope."
+commands.allow = ["relink_wsl"]
+
+[[permission]]
+identifier = "deny-relink-wsl"
+description = "Denies the relink_wsl command without any pre-configured scope."
+commands.deny = ["relink_wsl"]
