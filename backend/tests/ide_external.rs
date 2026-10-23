@@ -93,6 +93,8 @@ async fn check() {
     )
     .await
     .unwrap();
+    // Windows TEMP may use an 8.3 alias; the editor receives the canonical worktree path.
+    let path = agent_workspace_backend::environment::canonical_path(&path).unwrap();
     let tree = created.worktree_id.unwrap();
     let id = Uuid::new_v4();
     let exe = root.path().join(if cfg!(windows) {
