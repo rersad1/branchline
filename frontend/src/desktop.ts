@@ -12,7 +12,8 @@ export const defaultPreferences: Preferences = { light_theme: false, notificatio
 export interface Layout { preferences?: Preferences; terminals?: TerminalLayout[]; explorer_visible: boolean; explorer_width: number; collapsed: string[] }
 export interface Workspace { version: number; environments: { environment: ExecutionEnvironment; registration_id: string }[]; selection: Selection | null; layout: Layout }
 interface Commands {
-  memory_diagnostics: {args:{action:'status'|'start'|'stop'|'export'};result:import('./features/diagnostics/types').MemoryStatus};
+  updates: {args:{action:'status'|'check'|'download'|'install'};result:UpdateStatus};
+  memory_diagnostics: {args:{action:'status'|'start'|'stop'|'export'|'set_budget';budget?:import('./features/diagnostics/types').BudgetSetting};result:import('./features/diagnostics/types').MemoryStatus};
   notify_attention: {args:{target:{environment_id:string;project_id:string;worktree_id:string;instance_id:string;session_id:string;sequence:number}};result:string|null};
   close_application: {args: undefined; result: void};
   harnesses: {args:{scope:{environment_id:string};request:HarnessRequest};result:HarnessResponse};
@@ -73,6 +74,9 @@ export function command<K extends keyof Commands>(name: K, args: Commands[K]['ar
 }
 export const onRuntimeState = (callback: (state: RuntimeState) => void) => listen<RuntimeState>('runtime-state', event => callback(event.payload));
 export const onCloseRequested = (callback: () => void) => listen('app-close-requested', callback);
+export interface UpdateStatus {current_version:string;phase:'idle'|'checking'|'available'|'current'|'downloading'|'ready'|'installing'|'error';version:string|null;downloaded:number;total:number|null;error:string|null}
+export const onUpdateStatus=(callback:(status:UpdateStatus)=>void)=>listen<UpdateStatus>('update-status',event=>callback(event.payload));
+export const onMemoryBudgetStatus = (callback: (budgets:import('./features/diagnostics/types').BudgetStatus[]) => void) => listen<import('./features/diagnostics/types').BudgetStatus[]>('memory-budget-status', event=>callback(event.payload));
 export const onAttentionUnavailable = (callback: (message:string) => void) => listen<string>('attention-unavailable', event=>callback(event.payload));
 export const onAttentionOpen = (callback: (target: {environment_id:string;project_id:string;worktree_id:string;instance_id:string;session_id:string;sequence:number}) => void) => listen<{environment_id:string;project_id:string;worktree_id:string;instance_id:string;session_id:string;sequence:number}>('attention-open', event=>callback(event.payload));
 

@@ -14,6 +14,8 @@ Features include:
   and version-gated provider/ACP integrations.
 - Workspace persistence, external editor integration, attention notifications and
   process/system memory diagnostics.
+- Signed in-app updates from [GitHub Releases](https://github.com/rersad1/branchline/releases).
+  See [updates and publishing](docs/updates.md); 0.1.1 needs one manual upgrade.
 
 ## Platform scope and limitations
 
@@ -34,9 +36,16 @@ Working-file editing is limited to supported UTF-8 regular files up to 1 MiB.
 Provider integrations check exact compatible versions and may refuse other versions;
 the candidate manifest is not a claim that every provider/platform combination works.
 Providers require their own local installation and authentication. Windows notification
-click handling, Ubuntu Remote WSL editor acceptance and additional provider combinations
-still have validation gaps. Native folder picker selection has not been revalidated.
+click handling is verified for the live app; Ubuntu Remote WSL editor acceptance and
+additional provider combinations still have validation gaps. See
+[Windows notifications](docs/notifications.md) for setup and supported events.
+Native folder picker selection has not been revalidated.
 Memory diagnostics are observations, not an automatic memory reclamation tool.
+They include per-worktree summaries, missing-metric coverage, session peaks/events,
+Linux memory pressure and optional local soft memory budgets. A soft budget only
+warns; it never limits RAM or controls processes. See
+[memory diagnostics and budgets](docs/memory-diagnostics.md) for setup, accounting,
+privacy and export compatibility.
 
 ## Build prerequisites
 

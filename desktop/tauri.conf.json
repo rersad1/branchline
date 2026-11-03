@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Agent Workspace Manager",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "identifier": "dev.agent-workspace.manager",
   "build": {
     "frontendDist": "../frontend/dist"
@@ -46,6 +46,20 @@
     },
     "resources": {
       "assets/terminal-host-windows.exe": "terminal-host-windows.exe"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "windows": {
+        "installMode": "passive"
+      },
+      "allowDowngrades": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ0RThFODhFRjE2RUVEMDcKUldRSDdXN3hqdWpvMU44RldicUR4YjB1NjU0U2kzZ3hsZTlFTFE5ME5kRUhaV0ZhWWNVK3hNM2kK",
+      "requireSignedVersion": true,
+      "endpoints": [
+        "https://github.com/rersad1/branchline/releases/latest/download/latest.json"
+      ]
     }
   }
 }

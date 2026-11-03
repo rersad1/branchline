@@ -590,3 +590,13 @@ input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:dis
 .memory-table th,.memory-table td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border-default); white-space:nowrap; }
 .memory-table small { display:block; color:var(--text-muted); margin-top:3px; }
 .memory-diagnostics input[readonly] { width:100%; margin:6px 0; }
+.memory-budget-form { display:flex; align-items:end; flex-wrap:wrap; gap:10px; margin:12px 0; }
+.memory-budget-form label { display:grid; gap:4px; min-width:100px; }
+.memory-budget-form select { max-width:100%; }
+.memory-budget-row { border:1px solid var(--border-default); padding:10px; margin:8px 0; }
+.memory-budget-row p { margin:6px 0; }
+.memory-warning { border-left:3px solid var(--status-warning, #d5a34a); }
+.memory-table small { white-space:normal; min-width:160px; }
+.memory-diagnostics details { margin:12px 0; }
+.update-control { position: relative; }
+.update-dot { position: absolute; right: 3px; top: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }

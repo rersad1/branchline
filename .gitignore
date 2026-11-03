@@ -7,6 +7,8 @@
 /desktop/assets/worker-linux-x86_64
 /desktop/assets/terminal-host-windows.exe
 /desktop/gen/
+/release-artifacts/
+*.dpapi
 **/__pycache__/
 **/*.pyc
 **/.cache/
@@ -59,6 +61,7 @@
 /docs/*acceptance*
 /docs/*review-report*
 /docs/*results*
+/docs/*-click.png
 /gitleaks*.json
 /trufflehog*.json
 **/test-results/
@@ -67,6 +70,13 @@
 *.trace
 *.dmp
 *.dump
+# Private memory reports and local worktree budgets (including accidental copies)
+**/*.memory-diagnostics/
+**/memory-current.jsonl
+**/memory-previous.jsonl
+**/memory-report-*.jsonl
+**/budgets.json
+**/budgets.json.tmp
 *.bak
 *.tmp
 *.msi

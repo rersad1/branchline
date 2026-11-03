@@ -43,16 +43,56 @@ pub(super) fn sample(terminals: Vec<TerminalMemory>) -> Snapshot {
                 });
                 ok = Process32NextW(snapshot, &mut entry);
             }
+            if processes.is_empty() || GetLastError() != ERROR_NO_MORE_FILES {
+                errors.push("host_inventory_unavailable".into());
+            }
             CloseHandle(snapshot);
         } else {
             errors.push("host_inventory_unavailable".into());
         }
     }
     let scanned_processes = processes.len();
-    // Mark relationships before opening processes; unrelated Windows applications are excluded.
-    let (mut processes, omitted_processes) =
-        select(processes, &terminals, std::process::id(), false);
+    // Creation times for the lightweight inventory prevent recycled parent PIDs
+    // from assigning unrelated children to a worktree. No argv access is needed.
     for p in &mut processes {
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, p.pid);
+            if handle.is_null() {
+                continue;
+            }
+            let (mut created, mut exited, mut kernel, mut user): (
+                FILETIME,
+                FILETIME,
+                FILETIME,
+                FILETIME,
+            ) = (zeroed(), zeroed(), zeroed(), zeroed());
+            if GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) != 0 {
+                let units =
+                    |t: FILETIME| ((t.dwHighDateTime as u64) << 32) | t.dwLowDateTime as u64;
+                p.start_id = Some(units(created));
+                p.cpu_time_ms = Some((units(kernel) + units(user)) / 10_000);
+            }
+            CloseHandle(handle);
+        }
+    }
+    let mut coverage = Coverage {
+        discovered_processes: scanned_processes,
+        inventory_complete: !errors.iter().any(|e| e == "host_inventory_unavailable"),
+        ..Default::default()
+    };
+    match system_working_sets() {
+        Ok(sets) => {
+            for p in &mut processes {
+                p.resident_bytes = sets.get(&p.pid).copied();
+            }
+        }
+        Err(()) => errors.push("system_process_memory_unavailable".into()),
+    }
+    // Mark relationships before opening processes; unrelated Windows applications are excluded.
+    let (mut processes, excluded) = attribute(processes, &terminals, std::process::id(), false);
+    coverage.excluded_processes = excluded;
+    prioritize(&mut processes);
+    for p in processes.iter_mut().take(MAX_PROCESSES) {
         unsafe {
             let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, p.pid);
             if process.is_null() {
@@ -80,8 +120,21 @@ pub(super) fn sample(terminals: Vec<TerminalMemory>) -> Snapshot {
             ) = (zeroed(), zeroed(), zeroed(), zeroed());
             let units = |t: FILETIME| ((t.dwHighDateTime as u64) << 32) | t.dwLowDateTime as u64;
             if GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) != 0 {
-                p.start_id = Some(units(created));
-                p.cpu_time_ms = Some((units(kernel) + units(user)) / 10_000);
+                if p.start_id != Some(units(created)) {
+                    p.resident_bytes = None;
+                    p.private_bytes = None;
+                    p.start_id = None;
+                    p.cpu_time_ms = None;
+                    p.metrics_error = Some("process_changed".into());
+                } else {
+                    p.cpu_time_ms = Some((units(kernel) + units(user)) / 10_000);
+                }
+            } else {
+                p.resident_bytes = None;
+                p.private_bytes = None;
+                p.start_id = None;
+                p.cpu_time_ms = None;
+                p.metrics_error = Some("process_changed".into());
             }
             CloseHandle(process);
         }
@@ -92,7 +145,9 @@ pub(super) fn sample(terminals: Vec<TerminalMemory>) -> Snapshot {
         match system_working_sets() {
             Ok(working_sets) => {
                 for p in &mut processes {
-                    if p.resident_bytes.is_none() {
+                    if p.resident_bytes.is_none()
+                        && p.metrics_error.as_deref() != Some("process_changed")
+                    {
                         if let Some(bytes) = working_sets.get(&p.pid) {
                             p.resident_bytes = Some(*bytes);
                             p.metrics_error =
@@ -105,17 +160,19 @@ pub(super) fn sample(terminals: Vec<TerminalMemory>) -> Snapshot {
         }
     }
     processes.sort_by_key(|p| std::cmp::Reverse(p.resident_bytes.unwrap_or(0)));
-    Snapshot {
-        platform: "windows".into(),
-        collector_pid: std::process::id(),
-        system,
+    finish(
+        Snapshot {
+            platform: "windows".into(),
+            collector_pid: std::process::id(),
+            system,
+            terminals,
+            scanned_processes,
+            coverage,
+            errors,
+            ..Default::default()
+        },
         processes,
-        terminals,
-        scanned_processes,
-        omitted_processes,
-        pss_readable_processes: 0,
-        errors,
-    }
+    )
 }
 
 fn system_working_sets() -> Result<HashMap<u32, u64>, ()> {

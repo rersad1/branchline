@@ -2,21 +2,35 @@ mod memory;
 mod notifications;
 mod onboarding;
 mod runtime;
+mod updates;
 mod workspace;
 
 #[tauri::command]
+async fn updates(
+    app: tauri::AppHandle,
+    updates: tauri::State<'_, updates::Updates>,
+    action: updates::Action,
+) -> Result<updates::Status, Problem> {
+    updates.request(app, action).await
+}
+
+#[tauri::command]
 async fn memory_diagnostics(
+    app: tauri::AppHandle,
     recorder: tauri::State<'_, Arc<memory::Recorder>>,
     action: memory::Action,
+    budget: Option<memory::BudgetSetting>,
 ) -> Result<memory::Status, Problem> {
     let recorder = recorder.inner().clone();
-    tokio::task::spawn_blocking(move || recorder.action(action))
+    let status = tokio::task::spawn_blocking(move || recorder.request(action, budget))
         .await
         .map_err(|_| Problem::new("operation_failed"))?
         .map_err(|message| Problem {
             code: "memory_diagnostics_failed".into(),
             message: message.into(),
-        })
+        })?;
+    let _ = app.emit("memory-budget-status", &status.budgets);
+    Ok(status)
 }
 
 #[tauri::command]
@@ -269,7 +283,9 @@ async fn list_worktrees(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            updates,
             memory_diagnostics,
             notify_attention,
             close_application,
@@ -302,18 +318,22 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            app.manage(updates::Updates::default());
             app.manage(notifications::Notifications::default());
             let runtime = Arc::new(tauri::async_runtime::block_on(Runtime::new()));
             app.manage(runtime.clone());
             let recorder = Arc::new(memory::Recorder::new());
             app.manage(recorder.clone());
             let memory_runtime = runtime.clone();
+            let memory_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     if recorder.enabled() {
                         let record = memory_runtime.memory_sample().await;
                         let output = recorder.clone();
-                        let _ = tokio::task::spawn_blocking(move || output.append(record)).await;
+                        if let Ok(budgets) = tokio::task::spawn_blocking(move || output.append(record)).await {
+                            let _ = memory_handle.emit("memory-budget-status", budgets);
+                        }
                     }
                     tokio::select! {
                         _ = tokio::time::sleep(std::time::Duration::from_secs(memory::INTERVAL_SECONDS)) => {},

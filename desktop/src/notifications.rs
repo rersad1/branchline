@@ -1,6 +1,8 @@
 //! Fixed-content native toasts. No provider strings, prompt or credentials reach Windows.
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+#[cfg(windows)]
+mod activation;
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Target {
@@ -24,11 +26,13 @@ struct Inner {
         i64,
         i64,
         std::sync::Arc<std::sync::atomic::AtomicBool>,
+        Uuid,
     )>,
     seen: std::collections::VecDeque<String>,
     recent: std::collections::VecDeque<std::time::Instant>,
     // Keep the MTA alive while Windows can call the retained event handlers.
     mta: Option<MtaLifetime>,
+    activation: Option<activation::Activation>,
 }
 #[cfg(windows)]
 struct MtaLifetime(windows::Win32::System::Com::CO_MTA_USAGE_COOKIE);
@@ -48,12 +52,13 @@ impl Notifications {
     pub fn clear(&self) {
         let mut inner = self.0.lock().unwrap();
         inner.closed = true;
-        for (notifier, toast, token, failed, active) in inner.toasts.drain(..) {
+        for (notifier, toast, token, failed, active, _) in inner.toasts.drain(..) {
             active.store(false, std::sync::atomic::Ordering::SeqCst);
             let _ = toast.RemoveActivated(token);
             let _ = toast.RemoveFailed(failed);
             let _ = notifier.Hide(&toast);
         }
+        inner.activation.take();
         inner.mta.take();
     }
     pub fn show(
@@ -62,7 +67,7 @@ impl Notifications {
         target: Target,
         label: &str,
     ) -> Result<Option<String>, String> {
-        use tauri::{Emitter, Manager};
+        use tauri::Emitter;
         use windows::{
             core::{IInspectable, HSTRING},
             Data::Xml::Dom::XmlDocument,
@@ -126,24 +131,27 @@ impl Notifications {
             Err(error) if error.code().0 as u32 == 0x80070490 => Some(failure("Setting", error)),
             Err(error) => return Err(failure("Setting", error)),
         };
+        if inner.activation.is_none() {
+            inner.activation = Some(activation::Activation::register(app.clone())?);
+        }
+        let activation_state = inner.activation.as_ref().unwrap().state.clone();
+        // Windows sees an opaque, runtime-only token, never session IDs or prompt text.
+        let nonce = Uuid::new_v4();
+        let duration = if label == "Агент ожидает ответа" {
+            "long"
+        } else {
+            "short"
+        };
         let xml = XmlDocument::new().map_err(|e| failure("XmlDocument", e))?;
-        xml.LoadXml(&HSTRING::from(format!("<toast duration=\"short\"><visual><binding template=\"ToastGeneric\"><text>Branchline</text><text>{label}</text></binding></visual></toast>"))).map_err(|e|failure("LoadXml",e))?;
+        xml.LoadXml(&HSTRING::from(format!("<toast launch=\"{nonce}\" duration=\"{duration}\"><visual><binding template=\"ToastGeneric\"><text>Branchline</text><text>{label}</text></binding></visual></toast>"))).map_err(|e|failure("LoadXml",e))?;
         let toast =
             ToastNotification::CreateToastNotification(&xml).map_err(|e| failure("Toast", e))?;
         let active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let activation_active = active.clone();
-        let activation_app = app.clone();
+        let activation_callback = activation_state.clone();
         let token = toast
             .Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(
                 move |_, _| {
-                    if !activation_active.load(std::sync::atomic::Ordering::SeqCst) {
-                        return Ok(());
-                    }
-                    if let Some(window) = activation_app.get_webview_window("main") {
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
-                    }
-                    let _ = activation_app.emit("attention-open", &target);
+                    activation_callback.open(nonce);
                     Ok(())
                 },
             ))
@@ -171,10 +179,12 @@ impl Notifications {
                 return Err(failure("Failed handler", error));
             }
         };
+        activation_state.insert(nonce, target, active.clone());
         if let Err(error) = notifier.Show(&toast) {
             active.store(false, std::sync::atomic::Ordering::SeqCst);
             let _ = toast.RemoveActivated(token);
             let _ = toast.RemoveFailed(failed);
+            activation_state.remove(nonce);
             return Err(failure("Show", error));
         }
         inner.recent.push_back(now);
@@ -184,13 +194,15 @@ impl Notifications {
         }
         inner
             .toasts
-            .push_back((notifier, toast, token, failed, active));
+            .push_back((notifier, toast, token, failed, active, nonce));
         while inner.toasts.len() > 24 {
-            if let Some((notifier, toast, token, failed, active)) = inner.toasts.pop_front() {
+            if let Some((notifier, toast, token, failed, active, nonce)) = inner.toasts.pop_front()
+            {
                 active.store(false, std::sync::atomic::Ordering::SeqCst);
                 let _ = toast.RemoveActivated(token);
                 let _ = toast.RemoveFailed(failed);
                 let _ = notifier.Hide(&toast);
+                activation_state.remove(nonce);
             }
         }
         Ok(diagnostic)

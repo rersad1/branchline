@@ -566,12 +566,12 @@ fn normalize_native(s: &mut crate::acp::Instance, v: &Value) -> Result<(), Error
             Status::Unknown => Activity::Unknown,
         },
         "session.error" => Activity::Error,
-        "permission.asked" => Activity::Waiting,
-        "permission.replied" => Activity::Unknown,
+        "permission.asked" | "question.asked" => Activity::Waiting,
+        "permission.replied" | "question.replied" | "question.rejected" => Activity::Unknown,
         _ => return Ok(()),
     };
     if let Some(kind) = match kind {
-        "permission.asked" => Some("attention_waiting"),
+        "permission.asked" | "question.asked" => Some("attention_waiting"),
         "session.error" => Some("attention_error"),
         _ => None,
     } {
@@ -583,6 +583,51 @@ fn normalize_native(s: &mut crate::acp::Instance, v: &Value) -> Result<(), Error
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn questions_and_permissions_notify_only_assigned_sessions_without_provider_text() {
+        let mut instance: crate::acp::Instance = serde_json::from_value(serde_json::json!({
+            "id":Uuid::new_v4(), "environment_id":Uuid::new_v4(), "installation_id":Uuid::new_v4(),
+            "project_id":Uuid::new_v4(), "worktree_id":Uuid::new_v4(), "directory":std::env::temp_dir(),
+            "connection":"connected", "stale":false, "error":null, "owned":false, "protocol_version":null,
+            "capabilities":crate::acp::Capabilities::default(), "permissions":[], "events":[], "cursor":0,
+            "sessions":[{"id":"assigned", "parent_id":null, "directory":null, "assigned":true,
+                "activity":"Unknown", "modes":[], "current_mode":null},
+                {"id":"foreign", "parent_id":null, "directory":null, "assigned":false,
+                "activity":"Unknown", "modes":[], "current_mode":null}]
+        })).unwrap();
+        for kind in ["question.asked", "permission.asked"] {
+            for sid in ["foreign", "missing"] {
+                normalize_native(
+                    &mut instance,
+                    &serde_json::json!({"type":kind,"properties":{"sessionID":sid}}),
+                )
+                .unwrap();
+            }
+            assert!(instance.events.is_empty());
+            normalize_native(&mut instance, &serde_json::json!({"type":kind,"properties":{
+                "sessionID":"assigned", "questions":[{"question":"PRIVATE_PROMPT"}], "title":"PRIVATE_TOOL"
+            }})).unwrap();
+            assert_eq!(instance.sessions[0].activity, crate::acp::Activity::Waiting);
+            assert_eq!(instance.events.len(), 1);
+            let event = instance.events.pop_front().unwrap();
+            assert_eq!(event.kind, "attention_waiting");
+            assert_eq!(event.session_id.as_deref(), Some("assigned"));
+            assert!(event.text.is_empty());
+            for reply in [
+                "question.replied",
+                "question.rejected",
+                "permission.replied",
+            ] {
+                normalize_native(
+                    &mut instance,
+                    &serde_json::json!({"type":reply,"properties":{"sessionID":"assigned"}}),
+                )
+                .unwrap();
+                assert_eq!(instance.sessions[0].activity, crate::acp::Activity::Unknown);
+                assert!(instance.events.is_empty());
+            }
+        }
+    }
     #[test]
     fn provider_status_and_bounded_fragmented_sse() {
         assert_eq!(status(None).unwrap(), Status::Unknown);

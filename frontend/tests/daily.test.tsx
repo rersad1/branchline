@@ -1,16 +1,52 @@
 // @vitest-environment jsdom
 import {afterEach,expect,it,vi} from 'vitest';
-import {act,cleanup,fireEvent,render,screen} from '@testing-library/react';
+import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {AttentionLedger} from '../src/features/daily/attention';
 import {binding} from '../src/features/daily/commands';
 import {DailyUse} from '../src/features/daily/DailyUse';
 import type {AgentInstance} from '../src/desktop';
-import type {ApiClient} from '../src/api';
+import {worktreeCacheKey, type ApiClient, type Project, type Snapshot} from '../src/api';
 import * as desktop from '../src/desktop';
 const scope={environment_id:'e',project_id:'p',worktree_id:'w'};
 const instance=(cursor:number,kind='attention_waiting',text=''):AgentInstance=>({id:'i',...scope,connection:'connected',stale:false,cursor,sessions:[{id:'s',assigned:true,activity:'Unknown'}],events:[{sequence:cursor,kind,text,session_id:'s'}]} as AgentInstance);
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
+it('validates native session targets before navigation and ignores a late response after disconnect',async()=>{
+ let activate: ((target:{environment_id:string;project_id:string;worktree_id:string;instance_id:string;session_id:string;sequence:number})=>void)|undefined;
+ vi.spyOn(desktop,'desktopMode').mockReturnValue(true);
+ vi.spyOn(desktop,'onAttentionOpen').mockImplementation(callback=>{activate=callback;return Promise.resolve(()=>{});});
+ vi.spyOn(desktop,'onAttentionUnavailable').mockResolvedValue(()=>{});
+ vi.spyOn(desktop,'onCloseRequested').mockResolvedValue(()=>{});
+ const project:Project={id:'p',environment_id:'e',name:'Test',root_path:'/repo',git_common_dir:'/repo/.git',base_ref:null,created_at:''};
+ const snapshot:Snapshot={environment_id:'e',project_id:'p',last_successful_refresh_at:null,error:null,worktrees:[{
+   id:'w',environment_id:'e',project_id:'p',path:'/repo/tree',branch:'main',head:null,is_main:false,is_bare:false,is_detached:false,is_locked:false,lock_reason:null,is_prunable:false,prune_reason:null,is_available:true,availability_error:null,
+   git_status:{staged:0,unstaged:0,untracked:0,conflicts:0,files:[],last_successful_refresh_at:null,error:null}
+ }]};
+ const client=new QueryClient({defaultOptions:{queries:{staleTime:Infinity,retry:false}}});client.setQueryData(worktreeCacheKey('e','p'),snapshot);
+ let instances:AgentInstance[]=[];
+ let resolveClick: ((value:{instances:AgentInstance[]})=>void)|undefined;
+ let pending=false;
+ const agents=vi.fn(()=>pending?new Promise<{instances:AgentInstance[]}>(resolve=>{resolveClick=resolve;}):Promise.resolve({instances}));
+ const api={agents,worktrees:vi.fn().mockResolvedValue(snapshot)} as unknown as ApiClient;
+ const select=vi.fn(),view=vi.fn();
+ const ui=(connected:string[])=><QueryClientProvider client={client}><DailyUse api={api} layout={{explorer_visible:true,explorer_width:312,collapsed:[]}} arrange={vi.fn()} selection={null} select={select} view={view} projects={[project]} connected={connected} ready environments={[]} beforeClose={async()=>{}}/></QueryClientProvider>;
+ const rendered=render(ui(['e']));
+ const target={...scope,instance_id:'i',session_id:'s',sequence:1};
+ for(const unavailable of [[],[{...instance(1),connection:'disconnected'}],[{...instance(1),stale:true}],[{...instance(1),sessions:[]}],[{...instance(1),worktree_id:'foreign'}]]){
+   instances=unavailable as AgentInstance[];
+   await act(async()=>activate?.(target));
+   expect(select).not.toHaveBeenCalled();expect(view).not.toHaveBeenCalled();
+ }
+ instances=[instance(1)];pending=true;
+ await act(async()=>activate?.(target));
+ rendered.rerender(ui([]));
+ await act(async()=>resolveClick?.({instances}));
+ expect(select).not.toHaveBeenCalled();expect(view).not.toHaveBeenCalled();
+ pending=false;rendered.rerender(ui(['e']));
+ await act(async()=>activate?.(target));
+ await waitFor(()=>expect(select).toHaveBeenCalledWith(scope));
+ expect(view).toHaveBeenCalledWith('overview');
+});
 it('native activation for a removed or disconnected worktree reports unavailable without changing selection',async()=>{
  let activate: ((target:{environment_id:string;project_id:string;worktree_id:string;instance_id:string;session_id:string;sequence:number})=>void)|undefined;
  vi.spyOn(desktop,'desktopMode').mockReturnValue(true);

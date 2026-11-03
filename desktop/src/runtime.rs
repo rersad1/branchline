@@ -1452,12 +1452,19 @@ impl Runtime {
         };
         crate::memory::Record {
             record_type: "sample",
-            schema_version: 1,
+            schema_version: 2,
             captured_unix_ms,
             collection_duration_ms: start.elapsed().as_millis() as u64,
             host,
             environments,
             errors,
+            host_environment_id: ExecutionEnvironment::local().id,
+            session_id: Uuid::nil(),
+            snapshot_bytes: 0,
+            events: vec![],
+            omitted_events: 0,
+            budget_settings: vec![],
+            budgets: vec![],
         }
     }
     pub async fn close(&self) {

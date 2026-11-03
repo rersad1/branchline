@@ -11,6 +11,8 @@ import { allDrafts, discardDrafts, draftRevision, flushDrafts, saveDraft, subscr
 import { useSyncExternalStore } from 'react';
 import { ActionMenu } from '../../components/ui/action-menu';
 import { MemoryDiagnostics } from '../diagnostics/MemoryDiagnostics';
+import { MemoryBudgetNotice } from '../diagnostics/MemoryBudget';
+import { Updates } from '../updates/Updates';
 
 export function DailyUse({api,layout,arrange,selection,select,view,projects,connected,ready,environments,beforeClose,onAddProject}: {
   api:ApiClient;layout:Layout;arrange:(layout:Layout)=>void;selection:Selection|null;select:(selection:Selection)=>void;
@@ -50,11 +52,20 @@ export function DailyUse({api,layout,arrange,selection,select,view,projects,conn
     });
     return()=>{void subscription.then(off=>off());};
   },[]);
+  const openAttempt = useRef(0);
+  useEffect(()=>()=>{openAttempt.current++;},[]);
   function openAttention(item:Attention){
+    const attempt = ++openAttempt.current;
+    setTarget(null);
     if(!state.current.ready||!state.current.trees.some(t=>t.environment_id===item.environment_id&&t.project_id===item.project_id&&t.id===item.worktree_id)){
       setTarget(null);setError('Цель уведомления недоступна: среда отключена или worktree удалён.');return;
     }
-    setTarget(item);select({environment_id:item.environment_id,project_id:item.project_id,worktree_id:item.worktree_id});view('overview');setDialog(null);
+    void api.agents(item.environment_id,{action:'list',request_id:crypto.randomUUID(),project_id:item.project_id,worktree_id:item.worktree_id!}).then(response=>{
+      if(attempt!==openAttempt.current)return;
+      const available=state.current.ready&&state.current.trees.some(t=>t.environment_id===item.environment_id&&t.project_id===item.project_id&&t.id===item.worktree_id)&&response.instances.some(i=>i.id===item.instance_id&&i.environment_id===item.environment_id&&i.project_id===item.project_id&&i.worktree_id===item.worktree_id&&i.connection==='connected'&&!i.stale&&i.sessions.some(s=>s.id===item.session_id&&s.assigned));
+      if(!available){setError('Сессия уведомления больше не доступна.');return;}
+      setError('');setTarget(item);select({environment_id:item.environment_id,project_id:item.project_id,worktree_id:item.worktree_id});view('overview');setDialog(null);
+    }).catch(()=>{if(attempt===openAttempt.current)setError('Сессия уведомления недоступна.');});
   }
   const openRef=useRef(openAttention);openRef.current=openAttention;
   // Monitor registered scopes, independent of the selected panel. Never launch or adopt.
@@ -141,8 +152,15 @@ export function DailyUse({api,layout,arrange,selection,select,view,projects,conn
   useEffect(()=>{if(dialog==='palette')document.getElementById(`command-${active}`)?.scrollIntoView?.({block:'nearest'});},[dialog,active,search]);
   const run=(c:Command)=>{if(!c.enabled)return;setDialog(null);setTimeout(c.run,0);};
   return <div className="daily-controls">
+    {desktopMode()&&<Updates ready={ready} install={async()=>{
+      if(closing.current)throw new Error('Приложение уже завершает работу.');
+      closing.current=true;
+      try{await flushDrafts();await state.current.beforeClose();return await command('updates',{action:'install'});}
+      finally{closing.current=false;}
+    }}/>}
     {desktopMode()&&<button className="icon-button" aria-label="Диагностика памяти" title="Диагностика памяти" onClick={()=>setDialog('memory')}><Icon name="server"/></button>}
-    {dialog==='memory'&&<AgentDialog title="Диагностика памяти" close={()=>setDialog(null)}><MemoryDiagnostics/></AgentDialog>}
+    {desktopMode()&&<MemoryBudgetNotice open={()=>setDialog('memory')}/>}
+    {dialog==='memory'&&<AgentDialog title="Диагностика памяти" close={()=>setDialog(null)}><MemoryDiagnostics worktrees={trees} environments={environments}/></AgentDialog>}
     <button className="command-launcher" aria-label="Команды" title={`Палитра команд · ${shortcut('palette')}`} onClick={()=>commands[0].run()}><Icon name="search"/><span>Найти или выполнить команду</span><kbd>{shortcut('palette')}</kbd></button>
     <button className="icon-button" aria-label="Настройки" title={`Настройки · ${shortcut('preferences')}`} onClick={()=>setDialog('preferences')}><Icon name="settings"/></button>
     <ActionMenu label="Attention" icon="bell" badge={attention.length}>{attention.length?attention.map(item=><button key={item.id} onClick={()=>openAttention(item)}><Icon name="bell"/><span>{attentionLabel[item.kind]}<small>{item.environment_id.slice(0,8)} / {item.worktree_id?.slice(0,8)} / {item.session_id.slice(0,12)}</small></span></button>):<p className="menu-empty">Новых подтверждённых событий нет.</p>}<button disabled={!attention.length} onClick={()=>setAttention([])}>Очистить список</button></ActionMenu>
