@@ -11,7 +11,55 @@ vi.mock('@xterm/xterm',()=>({Terminal:class {options={};modes={bracketedPasteMod
 vi.mock('@xterm/addon-fit',()=>({FitAddon:class{fit(){}}}));
 const tree={environment_id:'env',project_id:'repo',id:'tree',is_available:true} as Worktree;
 const result:TerminalResponse={environment_id:'env',project_id:'repo',worktree_id:'tree',sessions:[],session_id:null,data:[],cursor:0,lost:false};
-afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();});
+const originalDialogMethods={showModal:Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype,'showModal'),close:Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype,'close')};
+function mockDialog(){
+ Object.defineProperty(HTMLDialogElement.prototype,'showModal',{configurable:true,value:function(this:HTMLDialogElement){this.setAttribute('open','');}});
+ Object.defineProperty(HTMLDialogElement.prototype,'close',{configurable:true,value:function(this:HTMLDialogElement){this.removeAttribute('open');}});
+}
+afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();for(const key of ['showModal','close'] as const){const original=originalDialogMethods[key];if(original)Object.defineProperty(HTMLDialogElement.prototype,key,original);else Reflect.deleteProperty(HTMLDialogElement.prototype,key);}});
+it('stops owned worktree processes only after confirmation and retains restartable tabs',async()=>{
+ vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});
+ mockDialog();
+ const api=new ApiClient('');
+ const layout:TerminalLayout={environment_id:'env',project_id:'repo',worktree_id:'tree',tabs:[{id:'a',title:'Shell',launch:{kind:'shell'}},{id:'b',title:'Agent',launch:{kind:'harness',installation_id:'exact'}}],active_id:'b',split_id:'a',vertical:true};
+ let sessions:TerminalResponse['sessions']=layout.tabs.map(t=>({id:t.id,project_id:'repo',worktree_id:'tree',cwd:'/fixture',shell:'Bash',state:'running',exit_code:null,error:null,rows:24,cols:80}));
+ const save=vi.fn(),call=vi.spyOn(api,'terminal').mockImplementation(async(env,r)=>{
+  expect(env).toBe('env');expect(r).toMatchObject({project_id:'repo',worktree_id:'tree'});
+  if(r.action==='close')sessions=sessions.filter(s=>s.id!==r.session_id);
+  return {...result,sessions};
+ });
+ render(<TerminalWorkspace api={api} tree={tree} connected layout={layout} save={save}/>);
+ await act(async()=>{});
+ expect(call.mock.calls.every(([,r])=>r.action!=='close')).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Освободить память…'}));
+ fireEvent.click(screen.getByRole('button',{name:'Отмена'}));
+ expect(call.mock.calls.every(([,r])=>r.action!=='close')).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Освободить память…'}));
+ await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Остановить процессы'})));
+ expect(call.mock.calls.filter(([,r])=>r.action==='close').map(([,r])=>(r as {session_id:string}).session_id)).toEqual(['a','b']);
+ expect(save).not.toHaveBeenCalled();
+ expect(screen.getAllByRole('tab')).toHaveLength(2);
+ expect(screen.getAllByRole('button',{name:'Запустить заново'})).toHaveLength(2);
+ expect(call.mock.calls.every(([,r])=>r.action!=='open'&&r.action!=='open_harness')).toBe(true);
+});
+it('keeps remaining sessions visible when stopping a worktree partially fails',async()=>{
+ vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});
+ mockDialog();
+ const api=new ApiClient(''),save=vi.fn();
+ const layout:TerminalLayout={environment_id:'env',project_id:'repo',worktree_id:'tree',tabs:[{id:'a',title:'A'},{id:'b',title:'B'}],active_id:'b',split_id:'a',vertical:false};
+ let sessions:TerminalResponse['sessions']=layout.tabs.map(t=>({id:t.id,project_id:'repo',worktree_id:'tree',cwd:'/fixture',shell:'Bash',state:'running',exit_code:null,error:null,rows:24,cols:80}));
+ vi.spyOn(api,'terminal').mockImplementation(async(_env,r)=>{
+  if(r.action==='close'){if(r.session_id==='b')throw Error('PTY close failed');sessions=sessions.filter(s=>s.id!==r.session_id);}
+  return {...result,sessions};
+ });
+ render(<TerminalWorkspace api={api} tree={tree} connected layout={layout} save={save}/>);
+ await act(async()=>{});fireEvent.click(screen.getByRole('button',{name:'Освободить память…'}));
+ await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Остановить процессы'})));
+ expect(screen.getByText('Не все процессы остановлены: PTY close failed')).toBeTruthy();
+ expect(screen.getAllByRole('tab')).toHaveLength(2);expect(save).not.toHaveBeenCalled();
+ expect(screen.getAllByRole('button',{name:'Запустить заново'})).toHaveLength(1);
+ expect(sessions.map(s=>s.id)).toEqual(['b']);
+});
 it('invalidates native Paste on lost output before a foreground TUI can receive stale Ctrl+V',async()=>{
  vi.useFakeTimers();vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});
  Object.defineProperty(navigator,'clipboard',{configurable:true,value:{readText:async()=> 'plain text'}});

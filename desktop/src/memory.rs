@@ -9,6 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
+mod summary;
 mod tracking;
 pub use tracking::{BudgetSetting, BudgetStatus, Event};
 
@@ -59,6 +60,7 @@ pub enum Action {
     Start,
     Stop,
     Export,
+    ExportSummary,
     SetBudget,
 }
 struct State {
@@ -205,6 +207,21 @@ impl Recorder {
                 }
                 state.enabled = false;
                 state.interrupted = true;
+            }
+            Action::ExportSummary => {
+                let directory = self
+                    .directory
+                    .as_ref()
+                    .ok_or("Каталог диагностики недоступен.")?;
+                fs::create_dir_all(directory).map_err(|_| "Каталог диагностики недоступен.")?;
+                let path = directory.join(format!(
+                    "memory-summary-{}-{}.json",
+                    unix_ms(),
+                    Uuid::new_v4()
+                ));
+                summary::export(directory, &path, unix_ms())
+                    .map_err(|_| "Не удалось экспортировать сводку диагностики.")?;
+                state.export_path = Some(path.to_string_lossy().into_owned());
             }
             Action::Export => {
                 let directory = self
@@ -405,6 +422,29 @@ fn repair_tail(file: &mut File) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn summary_export_keeps_recording_and_original_history() {
+        let directory =
+            std::env::temp_dir().join(format!("branchline-summary-action-{}", Uuid::new_v4()));
+        let recorder = Recorder::at(Some(directory.clone()), 16384);
+        recorder.action(Action::Start).unwrap();
+        recorder.append(Record {
+            record_type: "sample",
+            captured_unix_ms: 1000,
+            ..Default::default()
+        });
+        let before = recorder.action(Action::Status).unwrap().retained_bytes;
+        let status = recorder.action(Action::ExportSummary).unwrap();
+        assert!(status.enabled);
+        assert_eq!(status.retained_bytes, before);
+        let summary: serde_json::Value =
+            serde_json::from_slice(&fs::read(status.export_path.unwrap()).unwrap()).unwrap();
+        assert_eq!(summary["record_type"], "memory_summary");
+        assert_eq!(summary["samples"], 1);
+        let raw = recorder.action(Action::Export).unwrap();
+        assert!(raw.export_path.unwrap().ends_with(".jsonl"));
+        fs::remove_dir_all(directory).unwrap();
+    }
     #[test]
     fn measures_native_record_cost_without_printing_process_details() {
         let directory =

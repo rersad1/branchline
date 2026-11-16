@@ -111,6 +111,30 @@ also cover accidental report/config copies into the repository.
 
 ## Storage and export compatibility
 
+Choose **Экспортировать сводку** for initial analysis. The separate JSON export
+streams retained schema-1/schema-2 logs and reports observed min/max with timestamps,
+per-environment category totals, app-session ranges, low Windows available-memory
+counts and missing/incomplete observations. Category totals are combined across
+groups in the same snapshot before measuring peaks. Old records without group totals
+are explicitly marked as detail-only subtotals. Missing metrics are not measured
+zeros; a range with `observations: 0` is unavailable. Counts describe samples, not
+elapsed time across gaps. Sources are aggregated by environment across boots.
+
+Summary memory is bounded to one input line (4 MiB), 64 sources, 128 app sessions,
+32 categories per source and eight selected processes at each source's minimum
+available-memory observation. Invalid/oversized lines and bounded entry loss are
+counted. The summary is intentionally lossy and contains no process commands.
+**Экспортировать полный журнал** preserves the existing streamed JSONL export.
+Neither export changes the retained logs or recording state.
+
+In a terminal workspace, **Освободить память…** offers an explicit stop of its
+app-owned terminal/agent sessions, including their owned MCP descendants. Confirming
+uses the existing scoped supervisor cleanup; it does not stop a distro, external
+processes or another worktree. Tabs, order, split and launch descriptors remain;
+**Запустить заново** explicitly starts a new session. There is no inactivity timer
+or automatic termination of background tasks. Running jobs and unsaved state inside
+the stopped processes can be lost. Partial failures leave remaining sessions visible.
+
 Schema **2** adds `source_id`, `lifetime_id`, `coverage`, group/category totals,
 pressure, deltas/peaks, events, session identity, snapshot size, budget settings and
 statuses. Export begins with metadata describing units, privacy, limitations and

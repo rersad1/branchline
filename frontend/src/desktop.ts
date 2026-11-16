@@ -13,7 +13,7 @@ export interface Layout { preferences?: Preferences; terminals?: TerminalLayout[
 export interface Workspace { version: number; environments: { environment: ExecutionEnvironment; registration_id: string }[]; selection: Selection | null; layout: Layout }
 interface Commands {
   updates: {args:{action:'status'|'check'|'download'|'install'};result:UpdateStatus};
-  memory_diagnostics: {args:{action:'status'|'start'|'stop'|'export'|'set_budget';budget?:import('./features/diagnostics/types').BudgetSetting};result:import('./features/diagnostics/types').MemoryStatus};
+  memory_diagnostics: {args:{action:'status'|'start'|'stop'|'export'|'export_summary'|'set_budget';budget?:import('./features/diagnostics/types').BudgetSetting};result:import('./features/diagnostics/types').MemoryStatus};
   notify_attention: {args:{target:{environment_id:string;project_id:string;worktree_id:string;instance_id:string;session_id:string;sequence:number}};result:string|null};
   close_application: {args: undefined; result: void};
   harnesses: {args:{scope:{environment_id:string};request:HarnessRequest};result:HarnessResponse};

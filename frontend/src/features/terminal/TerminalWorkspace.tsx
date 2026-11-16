@@ -9,6 +9,7 @@ import { attachTerminalInteraction } from './interaction';
 import { NewTabMenu } from './NewTabMenu';
 import { shellDirectory, terminalTheme } from './shellIntegration';
 import { moveTab, numberTabs } from './tabs';
+import { AgentDialog } from '../dashboard/AgentDialog';
 
 export function TerminalPane({api,tree,session,connected,visible=true}:{api:ApiClient;tree:Worktree;session:TerminalSession;connected:boolean;visible?:boolean}) {
   const element=useRef<HTMLDivElement>(null), live=useRef(connected),available=useRef(connected);
@@ -81,6 +82,7 @@ export function TerminalWorkspace({api,tree,connected,layout,save,harness,compac
   useEffect(()=>{tabStrip.current?.querySelector<HTMLElement>('[aria-selected=true]')?.scrollIntoView?.({block:'nearest',inline:'nearest'});},[value.active_id]);
   const alive=useRef(false),busyRef=useRef(false),revision=useRef(0);
   const [sessions,setSessions]=useState<TerminalSession[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[loading,setLoading]=useState(true),[confirmed,setConfirmed]=useState(false);
+  const [confirmStop,setConfirmStop]=useState(false);
   const call=(action:TerminalAction)=>api.terminal(tree.environment_id,{project_id:tree.project_id,worktree_id:tree.id,...action});
   useEffect(()=>{alive.current=true;setLoading(true);setConfirmed(false);let enabled=true;
     void(async()=>{while(enabled){try{if(connected&&!busyRef.current){const version=revision.current;const r=await call({action:'list'});if(!enabled)return;if(version===revision.current&&!busyRef.current){setSessions(r.sessions);setLoading(false);setConfirmed(true);}}}
@@ -109,6 +111,25 @@ export function TerminalWorkspace({api,tree,connected,layout,save,harness,compac
       const old=current.current,tabs=numberTabs(old.tabs.filter(t=>t.id!==id)),next=tabs[Math.max(0,old.tabs.findIndex(t=>t.id===id)-1)];save({...old,tabs,active_id:old.active_id===id?next?.id??null:old.active_id,split_id:old.split_id===id||old.active_id===id?null:old.split_id});setSessions(s=>s.filter(s=>s.id!==id));
     }catch(e){if(alive.current)setError((e as Error).message);}finally{busyRef.current=false;if(alive.current)setBusy(false);}
   }
+  async function stopWorktree() {
+    if(busyRef.current||launching||!confirmed||!connected||!tree.is_available)return;
+    busyRef.current=true;revision.current++;setBusy(true);setConfirmStop(false);setError('');
+    try {
+      // Refresh exact scoped ownership. Reuse the existing supervisor close path;
+      // no PID/name heuristics, distro shutdown or changes to other worktrees.
+      const currentSessions=await call({action:'list'});
+      if(alive.current)setSessions(currentSessions.sessions);
+      for(const session of currentSessions.sessions) {
+        const result=await call({action:'close',session_id:session.id});
+        if(alive.current)setSessions(result.sessions);
+      }
+      // Keep tabs, order, split and launch descriptors. Restart stays explicit.
+    } catch(e) {
+      if(alive.current)setError(`Не все процессы остановлены: ${(e as Error).message}`);
+    } finally {
+      busyRef.current=false;if(alive.current)setBusy(false);
+    }
+  }
   const unlisted=sessions.filter(s=>!value.tabs.some(t=>t.id===s.id));
   const disabled=busy||launching||loading||!confirmed||!connected||!tree.is_available;
   const targetFor=(id:string|null)=>{const tab=value.tabs.find(t=>t.id===id);return tab?.launch?.kind==='shell'?null:tab?.launch?.kind==='harness'?installations?.find(i=>i.id===(tab.launch?.kind==='harness'?tab.launch.installation_id:'')):undefined;};
@@ -116,6 +137,8 @@ export function TerminalWorkspace({api,tree,connected,layout,save,harness,compac
   const toolbar = <div className="terminal-toolbar">{!compact&&!unified&&<button data-command="new-terminal" disabled={disabled||value.tabs.length>=8} onClick={()=>{void open();}}><Icon name="plus" size={14}/>Новый терминал</button>}{unified&&targetFor(value.active_id)===undefined?<NewTabMenu installations={installations!} disabled={disabled||!value.active_id||value.tabs.length>=8} label="Разделить рабочую область" icon="split" create={target=>void open(true,undefined,target)} settings={onSettings}/>:<button className="icon-button" title="Разделить рабочую область" aria-label="Split" data-command="split" disabled={disabled||!value.active_id||value.tabs.length>=8||(!unified&&compact&&!harness)} onClick={()=>{void open(true,undefined,unified?targetFor(value.active_id)!:harness??null);}}><Icon name="split"/></button>}<button className="icon-button" title={value.vertical?'Рядом':'Друг под другом'} aria-label={value.vertical?'Рядом':'Друг под другом'} data-command="orientation" disabled={!value.split_id} onClick={()=>save({...value,vertical:!value.vertical})}><Icon name={value.vertical?'split':'rows'}/></button>{value.split_id&&<button className="icon-button" title="Один pane" aria-label="Один pane" data-command="single" onClick={()=>save({...value,split_id:null})}><Icon name="panels"/></button>}</div>;
   const tabs = <div className="workspace-tab-scroll"><div ref={tabStrip} className="terminal-tabs" role="tablist" aria-label="Terminal tabs">{value.tabs.map(t=><div key={t.id} className="workspace-tab" data-active={value.active_id===t.id} draggable onDragStart={event=>{dragged.current=t.id;event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',t.id);}} onDragEnd={()=>{dragged.current=null;}} onDragOver={event=>{if(dragged.current){event.preventDefault();event.dataTransfer.dropEffect='move';}}} onDrop={event=>{event.preventDefault();if(dragged.current)save({...current.current,tabs:moveTab(current.current.tabs,dragged.current,t.id)});dragged.current=null;}}><button role="tab" aria-selected={value.active_id===t.id} title={`${t.title} · Перетащите или Alt+Shift+←/→ для перемещения`} onKeyDown={event=>{if(event.altKey&&event.shiftKey&&(event.key==='ArrowLeft'||event.key==='ArrowRight')){event.preventDefault();const index=value.tabs.findIndex(tab=>tab.id===t.id),target=value.tabs[index+(event.key==='ArrowLeft'?-1:1)];if(target)save({...current.current,tabs:moveTab(current.current.tabs,t.id,target.id)});}}} onClick={()=>{save({...value,active_id:t.id,split_id:value.split_id===t.id?null:value.split_id});onActivate?.(targetFor(t.id)??null);}}><Icon name={t.launch?.kind==='harness'?'play':'terminal'} size={14}/><span>{t.title}{(!compact||sessions.find(s=>s.id===t.id)?.state!=='running')&&` · ${sessions.find(s=>s.id===t.id)?.state??'stopped'}`}</span></button><button aria-label={`Закрыть ${t.title}`} disabled={busy||launching||!confirmed||!connected} title="Закрыть вкладку и её процесс" onClick={()=>{void close(t.id);}}><Icon name="close" size={13}/></button></div>)}</div>{unified&&<NewTabMenu installations={installations!} disabled={disabled||value.tabs.length>=8} create={target=>void open(false,undefined,target)} settings={onSettings}/>}</div>;
   return <section className={`terminal-workspace${compact?' compact':''}${unified?' unified':''}`} aria-label="Terminal workspace">{compact||unified?<div className="terminal-strip">{tabs}{toolbar}</div>:<>{toolbar}{tabs}</>}
+    <div className="dialog-actions"><button disabled={disabled||!sessions.some(s=>s.state==='running')} title="Остановить терминалы и агентов этого worktree, сохранив вкладки" onClick={()=>setConfirmStop(true)}>Освободить память…</button></div>
+    {confirmStop&&<AgentDialog title="Остановить процессы worktree?" close={()=>setConfirmStop(false)}><p>Будут завершены все управляемые терминалы и агенты этого worktree, включая фоновые задачи и дочерние MCP. Несохранённая работа в этих процессах может быть потеряна.</p><p>Вкладки и способ запуска сохранятся. Для продолжения нажмите «Запустить заново». Остальные worktree и внешние процессы продолжат работу.</p><div className="dialog-actions"><button onClick={()=>setConfirmStop(false)}>Отмена</button><button disabled={disabled} onClick={()=>void stopWorktree()}>Остановить процессы</button></div></AgentDialog>}
     {loading&&<p role="status">Loading — owned terminals…</p>}{!connected&&<p role="alert">Disconnected: ввод отключён, состояние процессов не подтверждено.</p>}{error&&<p role="alert">{error}</p>}
     {unlisted.map(s=><button key={s.id} onClick={()=>save({...value,tabs:[...value.tabs,{id:s.id,title:`${s.shell} · reattach`}],active_id:s.id})}>Подключить существующий {s.shell}</button>)}
     <div className={`terminal-panes${value.vertical?' vertical':''}`}>{value.tabs.map(tab=>{const visible=tab.id===value.active_id||tab.id===value.split_id;return <div key={tab.id} className="terminal-slot" hidden={!visible} style={{order:tab.id===value.active_id?0:1}}>{pane(tab.id,visible)}</div>;})}</div>

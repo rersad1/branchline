@@ -34,7 +34,7 @@ export function MemoryDiagnostics({worktrees=[],environments=[]}:{worktrees?:Wor
     void read();const timer=setInterval(()=>void read(),5000);
     return()=>{alive.current=false;clearInterval(timer);};
   },[]);
-  async function act(action:'start'|'stop'|'export'|'set_budget',budget?:BudgetSetting) {
+  async function act(action:'start'|'stop'|'export'|'export_summary'|'set_budget',budget?:BudgetSetting) {
     if(mutating.current)return;mutating.current=true;revision.current++;setBusy(true);setError('');
     try{const result=await command('memory_diagnostics',budget?{action,budget}:{action});if(alive.current)setStatus(result);}catch(e){if(alive.current)setError((e as Error).message);}finally{mutating.current=false;if(alive.current)setBusy(false);}
   }
@@ -42,7 +42,8 @@ export function MemoryDiagnostics({worktrees=[],environments=[]}:{worktrees?:Wor
   return <div className="memory-diagnostics">
     <p>Локальная запись расхода памяти каждые 30 секунд. Включение сохраняется после перезапуска приложения; запись идёт, пока приложение открыто.</p>
     <p className="muted">Сохраняются имена процессов, PID и start ID, ID загрузки/запуска, память, потоки, CPU и ID worktree. Полные команды, аргументы, environment, секреты, пути проектов, содержимое терминалов и запросы не записываются. Только для Java в Linux локально читается до 16 КиБ аргументов: сохраняется одна роль из фиксированного списка, исходные данные отбрасываются. Cgroup читается для эвристики контейнера, пути не сохраняются. WSL для мониторинга автоматически не запускается.</p>
-    <div className="dialog-actions"><button disabled={busy||!status} onClick={()=>void act(status?.enabled?'stop':'start')}>{status?.enabled?'Остановить запись':'Начать запись'}</button><button disabled={busy||!status||(!sample&&!status.retained_bytes)} onClick={()=>void act('export')}>Экспортировать отчёт</button></div>
+    <div className="dialog-actions"><button disabled={busy||!status} onClick={()=>void act(status?.enabled?'stop':'start')}>{status?.enabled?'Остановить запись':'Начать запись'}</button><button disabled={busy||!status||(!sample&&!status.retained_bytes)} onClick={()=>void act('export_summary')}>Экспортировать сводку</button><button disabled={busy||!status||(!sample&&!status.retained_bytes)} onClick={()=>void act('export')}>Экспортировать полный журнал</button></div>
+    <p className="muted">Для анализа начните со сводки: минимумы и максимумы, категории процессов и полнота наблюдений. Полный журнал сохраняет подробности каждого снимка.</p>
     <p role="status">{status?(status.enabled?'Запись включена':'Запись выключена'):'Загрузка диагностики…'}{status?` · Журнал ${size(status.retained_bytes)} / ${size(status.max_retained_bytes)}`:''}</p>
     {(error||status?.error)&&<p role="alert">{error||status?.error}</p>}
     {status&&<BudgetEditor status={status} worktrees={worktrees} environments={environments} busy={busy} save={budget=>act('set_budget',budget)}/>}
